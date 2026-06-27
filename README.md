@@ -15,7 +15,7 @@ npx github:wtonychen/pi-web2
 **Or install globally:**
 
 ```bash
-npm install -g https://github.com/wtonychen/pi-web2
+npm install -g github:wtonychen/pi-web2
 pi-web2
 ```
 
