@@ -6,18 +6,16 @@ A local web UI for the [Pi Coding Agent](https://github.com/badlogic/pi-mono). I
 
 ## Quick Start
 
-**Run directly without installation:**
+**This package is not available on NPM Registry, please clone this repo.**
 
 ```bash
-npx github:wtonychen/pi-web2
+git clone https://github.com/wtonychen/pi-web2
+cd pi-web2
+npm install
+npm run start
 ```
 
-**Or install globally:**
-
-```bash
-npm install -g github:wtonychen/pi-web2
-pi-web2
-```
+**Plus, it's available on [GitHub Packages](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry#installing-a-package) (if that's OK to you)**
 
 Open `http://localhost:30141` after starting. The CLI will attempt to auto-open the browser once the server is ready.
 

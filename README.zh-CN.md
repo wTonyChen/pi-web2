@@ -6,18 +6,16 @@
 
 ## 快速开始
 
-**无需安装，直接运行：**
+**这个包在 NPM Registry 上不可用，请用 Git 拉取项目运行。**
 
 ```bash
-npx github:wtonychen/pi-web2
+git clone https://github.com/wtonychen/pi-web2
+cd pi-web2
+npm install
+npm run start
 ```
 
-**或全局安装后使用：**
-
-```bash
-npm install -g github:wtonychen/pi-web2
-pi-web2
-```
+**也可从 [GitHub Packages](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry#installing-a-package) 上安装（如果你不嫌麻烦的话）**
 
 启动后打开 `http://localhost:30141`。命令行版本会在服务就绪后尝试自动打开浏览器。
 
