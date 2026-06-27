@@ -19,7 +19,7 @@ npm install -g https://github.com/wtonychen/pi-web2
 pi-web2
 ```
 
-启动后打开 [http://localhost:30141](http://localhost:30141)。命令行版本会在服务就绪后尝试自动打开浏览器。
+启动后打开 `http://localhost:30141`。命令行版本会在服务就绪后尝试自动打开浏览器。
 
 **可选参数：**
 
@@ -97,7 +97,7 @@ npm install
 npm run dev
 ```
 
-本地开发端口为 [http://localhost:30141](http://localhost:30141)。
+本地开发服务地址为 `http://localhost:30141`。
 
 常用检查：
 

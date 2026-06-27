@@ -1,6 +1,6 @@
 # pi-web2
 
-[中文](./README.zh.md)
+[中文](./README.zh-CN.md)
 
 A local web UI for the [Pi Coding Agent](https://github.com/badlogic/pi-mono). It reads Pi's session files from your machine, providing session management, live conversations, model configuration, skill management, and project file preview — all in your browser.
 
@@ -19,7 +19,7 @@ npm install -g https://github.com/wtonychen/pi-web2
 pi-web2
 ```
 
-Open [http://localhost:30141](http://localhost:30141) after starting. The CLI will attempt to auto-open the browser once the server is ready.
+Open `http://localhost:30141` after starting. The CLI will attempt to auto-open the browser once the server is ready.
 
 **Options:**
 
@@ -95,7 +95,7 @@ npm install
 npm run dev
 ```
 
-Local dev server at [http://localhost:30141](http://localhost:30141).
+Local dev server at `http://localhost:30141`.
 
 Common checks:
 
