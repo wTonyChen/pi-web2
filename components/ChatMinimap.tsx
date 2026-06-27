@@ -8,6 +8,7 @@ interface Props {
   streamingMessage: Partial<AgentMessage> | null;
   scrollContainer: RefObject<HTMLDivElement | null>;
   messageRefs: RefObject<(HTMLDivElement | null)[]>;
+  onUnlock?: () => void;
 }
 
 const MINIMAP_WIDTH = 36;
@@ -43,9 +44,9 @@ function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
 
 function getNodeColor(msg: AgentMessage | Partial<AgentMessage>): { bg: string; border: string } {
   if (msg.role === "user") {
-    return { bg: "rgba(37,99,235,0.18)", border: "rgba(37,99,235,0.7)" };
+    return { bg: "rgba(37,99,235,0.1)", border: "rgba(37,99,235,0.7)" };
   }
-  return { bg: "rgba(107,114,128,0.12)", border: "rgba(107,114,128,0.5)" };
+  return { bg: "rgba(107,114,128,0.1)", border: "rgba(107,114,128,0.5)" };
 }
 
 function hasTextContent(msg: AgentMessage | Partial<AgentMessage>): boolean {
@@ -64,7 +65,7 @@ interface NodeInfo {
   index: number;
 }
 
-export function ChatMinimap({ messages, streamingMessage, scrollContainer, messageRefs }: Props) {
+export function ChatMinimap({ messages, streamingMessage, scrollContainer, messageRefs, onUnlock }: Props) {
   const [scrollRatio, setScrollRatio] = useState(0);
   const [viewportRatio, setViewportRatio] = useState(1);
   const [visible, setVisible] = useState(false);
@@ -153,6 +154,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     return () => clearTimeout(t);
   }, [messages.length, updatePositions]);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const scrollToMinimapRatio = useCallback((viewportTopRatio: number) => {
     const el = scrollContainer.current;
     if (!el) return;
@@ -162,10 +164,11 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     el.scrollTop = (clamped / (1 - viewportRatio)) * scrollable;
   }, [scrollContainer, viewportRatio]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    onUnlock?.();
     if (!visible) return;
-
-    draggingRef.current = true;
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);    draggingRef.current = true;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickRatio = (e.clientY - rect.top) / rect.height;
     const grabOffset = clickRatio - scrollRatio * (1 - viewportRatio);
@@ -174,55 +177,21 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
 
     scrollToMinimapRatio(clickRatio - offset);
 
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
       if (!draggingRef.current) return;
       const r = (ev.clientY - rect.top) / rect.height;
       scrollToMinimapRatio(r - offset);
     };
     const onUp = () => {
       draggingRef.current = false;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [visible, viewportRatio, scrollRatio, scrollToMinimapRatio]);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [onUnlock, visible, scrollRatio, viewportRatio, scrollToMinimapRatio]);
 
 
-
-  // Compute collision-free tooltip positions for all nodes
-  const TOOLTIP_HEIGHT = 22;
-  const TOOLTIP_GAP = 2;
-  const minimapHeightPx = containerRef.current?.clientHeight ?? 600;
-
-  const tooltipPositions = useMemo(() => {
-    if (!minimapHovered || nodes.length === 0) return [];
-    // Initial positions: centered on the dot
-    const positions = nodes.map((node) =>
-      Math.round(node.topRatio * minimapHeightPx - TOOLTIP_HEIGHT / 2)
-    );
-    // Iterative push-apart to resolve overlaps (top-to-bottom pass, then bottom-to-top)
-    for (let pass = 0; pass < 10; pass++) {
-      for (let i = 1; i < positions.length; i++) {
-        const minTop = positions[i - 1] + TOOLTIP_HEIGHT + TOOLTIP_GAP;
-        if (positions[i] < minTop) positions[i] = minTop;
-      }
-      for (let i = positions.length - 2; i >= 0; i--) {
-        const maxTop = positions[i + 1] - TOOLTIP_HEIGHT - TOOLTIP_GAP;
-        if (positions[i] > maxTop) positions[i] = maxTop;
-      }
-    }
-    // Clamp all to minimap bounds
-    for (let i = 0; i < positions.length; i++) {
-      positions[i] = Math.max(0, Math.min(minimapHeightPx - TOOLTIP_HEIGHT, positions[i]));
-    }
-    return positions;
-  }, [minimapHovered, nodes, minimapHeightPx]);
-
-  if (!visible) return null;
-
-  const viewportBoxTop = scrollRatio * (1 - viewportRatio) * 100;
-  const viewportBoxHeight = viewportRatio * 100;
 
   // Find the node closest to the current mouse position
   const nearestIndex = mouseYRatio !== null && nodes.length > 0
@@ -231,11 +200,33 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       }, 0)
     : null;
 
+  // Scrollable tooltip panel — auto-scrolls to the hovered message
+  const TOOLTIP_HEIGHT = 22;
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || nearestIndex === null || !minimapHovered) return;
+    const itemTop = nearestIndex * TOOLTIP_HEIGHT;
+    const panelHeight = panel.clientHeight;
+    const targetScroll = Math.max(0, Math.min(
+      itemTop - panelHeight / 2 + TOOLTIP_HEIGHT / 2,
+      nodes.length * TOOLTIP_HEIGHT - panelHeight
+    ));
+    panel.scrollTop = targetScroll;
+  }, [nearestIndex, minimapHovered, nodes.length]);
+
+  if (!visible) return null;
+
+  const viewportBoxTop = scrollRatio * (1 - viewportRatio) * 100;
+  const viewportBoxHeight = viewportRatio * 100;
+
   return (
     <div
       ref={containerRef}
-      onMouseDown={handleMouseDown}
-      onMouseEnter={() => setMinimapHovered(true)}
+      onPointerDown={handlePointerDown}
+      onMouseEnter={() => {
+        if (window.matchMedia?.("(hover: hover)").matches) setMinimapHovered(true);
+      }}
       onMouseLeave={() => { setMinimapHovered(false); setMouseYRatio(null); }}
       onMouseMove={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -245,6 +236,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         width: MINIMAP_WIDTH,
         flexShrink: 0,
         position: "relative",
+        touchAction: "none",
         cursor: "default",
         userSelect: "none",
         borderLeft: "1px solid var(--border)",
@@ -326,49 +318,60 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         }}
       />
 
-      {/* Tooltips for all nodes, collision-free positions */}
-      {minimapHovered && nodes.map((node, i) => {
-        const preview = getMessagePreview(node.msg);
-        const color = getNodeColor(node.msg);
-        const isNearest = nearestIndex === node.index;
-        if (!preview || tooltipPositions.length === 0) return null;
-        return (
-          <div
-            key={node.index}
-            style={{
-              position: "absolute",
-              top: tooltipPositions[i],
-              right: "100%",
-              marginRight: 6,
-              background: "var(--bg)",
-              borderTop: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-              borderRight: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-              borderBottom: `1px solid ${isNearest ? color.border : "var(--border)"}`,
-              borderLeft: `2px solid ${color.border}`,
-              borderRadius: 4,
-              padding: "2px 7px",
-              width: 200,
-              zIndex: 100,
-              pointerEvents: "none",
-              opacity: isNearest ? 1 : 0.45,
-              transition: "top 0.1s, opacity 0.1s",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                color: isNearest ? "var(--text)" : "var(--text-muted)",
-                lineHeight: 1.4,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {preview}
-            </div>
-          </div>
-        );
-      })}
+      {/* Scrollable tooltip panel — appears left of minimap on hover */}
+      {minimapHovered && (
+        <div
+          ref={panelRef}
+          style={{
+            position: "absolute",
+            top: 0, right: "100%",
+            width: 200,
+            height: "100%",
+            overflow: "hidden",
+            background: "var(--bg)",
+            borderLeft: "1px solid var(--border)",
+            borderTop: "1px solid var(--border)",
+            borderBottom: "1px solid var(--border)",
+            borderRadius: "6px 0 0 6px",
+            zIndex: 100,
+            pointerEvents: "none",
+          }}
+        >
+          {nodes.map((node) => {
+            const preview = getMessagePreview(node.msg);
+            const color = getNodeColor(node.msg);
+            const isNearest = nearestIndex === node.index;
+            return (
+              <div
+                key={node.index}
+                style={{
+                  height: TOOLTIP_HEIGHT,
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "0 7px",
+                  borderLeft: `2px solid ${color.border}`,
+                  background: color.bg,
+                  opacity: isNearest ? 1 : 0.35,
+                  transition: "opacity 0.1s",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: isNearest ? "var(--text)" : "var(--text-muted)",
+                    lineHeight: 1.4,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {preview || <span style={{ opacity: 0.3, fontStyle: "italic" }}>empty</span>}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

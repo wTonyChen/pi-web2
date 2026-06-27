@@ -77,7 +77,7 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI', 'Segoe UI Emoji', 'Segoe UI Symbol', Roboto, 'Microsoft YaHei UI', sans-serif;
   font-size: 14px;
   overscroll-behavior: none;
 }
@@ -477,7 +477,7 @@ span.linenumber {
 }
 
 /* Desktop sidebar: animate width */
-@media (min-width: 641px) {
+@media (min-width: 1000px) {
   .sidebar-overlay-backdrop {
     display: none !important;
   }
@@ -504,7 +504,7 @@ span.linenumber {
 
 
 /* Right panel: animate width */
-@media (min-width: 641px) {
+@media (min-width: 1000px) {
   .right-panel-container {
     overflow: hidden;
     transition: width 0.2s ease, min-width 0.2s ease;
@@ -527,7 +527,7 @@ span.linenumber {
 }
 
 /* Mobile sidebar: slide in/out as overlay */
-@media (max-width: 640px) {
+@media (max-width: 999px) {
   .chat-stats-center {
     display: none !important;
   }
@@ -564,4 +564,184 @@ span.linenumber {
     border-left: none !important;
     display: none !important;
   }
+
+  .hide-on-mobile {
+    display: none !important;
+  }
+
+  .show-on-mobile {
+    display: inline !important;
+  }
+
+  .msg-bottom-mobile {
+    display: flex !important;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+  }
+}
+
+.show-on-mobile {
+  display: none;
+}
+
+.show-on-touch {
+  display: none;
+}
+
+.bottom-btn {
+  color: var(--text-muted);
+  opacity: 1;
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s, opacity 0.1s;
+}
+@media (hover: hover) {
+  .bottom-btn:hover {
+    color: var(--text);
+  }
+  .bottom-btn:disabled:hover {
+    color: var(--text-dim);
+  }
+}
+.bottom-btn:disabled {
+  color: var(--text-dim);
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.file-preview-toolbar > * {
+  flex-shrink: 0;
+}
+
+.session-info-grid {
+  grid-template-columns: minmax(360px, 1.7fr) minmax(140px, 0.55fr) minmax(190px, 0.75fr) !important;
+}
+
+@media (max-width: 999px) {
+  .session-info-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .chat-input-container {
+    padding: 8px 16px !important;
+  }
+  .msg-actions button {
+    padding: 3px !important;
+  }
+}
+
+
+
+
+
+
+
+/* Additional styles here */
+.msg-actions {
+  display: flex;
+  gap: 3px;
+  transition: opacity 0.12s;
+}
+
+@media (hover: hover) {
+  .msg-actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .message-group:hover .msg-actions,
+  .message-group:focus-within .msg-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.action-btn {
+  color: var(--text-dim);
+  transition: color 0.12s;
+}
+.action-btn:hover {
+  color: var(--accent);
+}
+.action-btn.copied,
+.action-btn.forking {
+  color: var(--accent);
+}
+.action-btn.copied:hover,
+.action-btn.forking:hover {
+  color: var(--accent);
+}
+
+/* Sidebar session items — CSS-only hover */
+.session-item {
+  background: transparent;
+}
+.session-item.is-selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.session-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+@media (hover: hover) {
+  .session-item:hover {
+    background: var(--bg-hover);
+  }
+  .session-item.is-selected:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .session-item-actions {
+    display: none;
+  }
+  .session-item:hover .session-item-actions {
+    display: flex;
+  }
+}
+
+/* File explorer items — CSS-only hover */
+.file-item {
+  background: transparent;
+  transition: background 0.1s;
+}
+.file-item-size {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+.file-item-actions {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 2px;
+}
+@media (hover: hover) {
+  .file-item:hover {
+    background: var(--bg-hover);
+  }
+  .file-item-actions {
+    display: none;
+  }
+  .file-item:hover .file-item-actions {
+    display: flex;
+  }
+  .file-item:hover .file-item-size {
+    visibility: hidden;
+  }
+}
+@media (hover: none) {
+  .file-item-size {
+    display: none;
+  }
+  .show-on-touch {
+    display: inline-flex !important;
+  }
+}
+
+:root[data-sym-ligatures="true"] {
+  font-family: 'firaCodeSym', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI', 'Segoe UI Emoji', 'Segoe UI Symbol', Roboto, 'Microsoft YaHei UI', sans-serif;
+  --font-mono: 'firaCodeSym', var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+}
+:root[data-sym-ligatures="true"] body {
+  font-family: inherit;
 }

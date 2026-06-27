@@ -364,7 +364,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const d = await res.json() as SessionData & { agentState?: { running: boolean; state?: AgentStateResponse } };
       setData(d);
       setActiveLeafId(d.leafId);
-      setMessages(d.context.messages);
+      // Ensure all messages have a timestamp so thinkingDurationFromFile can (attempt to) compute
+      const msgs = d.context.messages.map((m: import("@/lib/types").AgentMessage, i) =>
+        m.timestamp ? m : { ...m, timestamp: Date.now() + i }
+      );
+      setMessages(msgs);
       setEntryIds(d.context.entryIds ?? []);
       setCurrentModelOverride(null);
       setError(null);
@@ -391,7 +395,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
-      setMessages(d.context.messages);
+      const msgs = d.context.messages.map((m: import("@/lib/types").AgentMessage, i) =>
+        m.timestamp ? m : { ...m, timestamp: Date.now() + i }
+      );
+      setMessages(msgs);
       setEntryIds(d.context.entryIds ?? []);
     } catch (e) {
       console.error("Failed to load context:", e);
@@ -689,7 +696,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "message_end": {
         const completed = event.message as AgentMessage | undefined;
         if (completed && completed.role !== "user") {
-          setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          setMessages((prev) => [...prev, normalizeToolCalls({ ...completed, timestamp: completed.timestamp ?? Date.now() })]);
         }
         dispatch({ type: "reset" });
         setAgentPhase({ kind: "waiting_model" });

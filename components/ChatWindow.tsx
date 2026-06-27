@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -10,8 +10,12 @@ import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 
+// Global lock state – read synchronously to avoid closure staleness
+let isBottomLocked = false;
+
 interface Props {
   session: SessionInfo | null;
+  cwd: string | null;
   newSessionCwd: string | null;
   onAgentEnd?: () => void;
   onSessionCreated?: (session: SessionInfo) => void;
@@ -23,19 +27,32 @@ interface Props {
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
+  scrollToBottomRef?: React.RefObject<(() => void) | null>;
+  onLockToBottomChange?: (locked: boolean) => void;
 }
 
-function phaseLabel(phase: AgentPhase): string {
+function PhaseLabel({ phase }: { phase: AgentPhase }) {
+  const [liveSeconds, setLiveSeconds] = useState(0);
+  const isRunning = phase?.kind === "running_tools" && phase.tools.length > 0;
+
+  useEffect(() => {
+    if (!isRunning) { setLiveSeconds(0); return; }
+    const start = Date.now();
+    const id = setInterval(() => setLiveSeconds(Math.round((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [isRunning]);
+
   if (phase?.kind === "running_tools") {
     const names = phase.tools.map((t) => t.name);
-    if (names.length === 0) return "Running tool...";
-    if (names.length === 1) return `Running ${names[0]}...`;
-    if (names.length <= 3) return `Running ${names.join(", ")}...`;
-    return `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
+    let label = "Running tool...";
+    if (names.length === 1) label = `Running ${names[0]}...`;
+    else if (names.length <= 3) label = `Running ${names.join(", ")}...`;
+    else label = `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2})...`;
+    return <>{label}{liveSeconds > 0 ? <span style={{ fontVariantNumeric: "tabular-nums" }}> {liveSeconds}s</span> : null}</>;
   }
-  if (phase?.kind === "waiting_model") return "Waiting for model...";
-  if (phase?.kind === "running_command") return "Running command...";
-  return "Thinking...";
+  if (phase?.kind === "waiting_model") return <>Waiting for model...</>;
+  if (phase?.kind === "running_command") return <>Running command...</>;
+  return <>Thinking...</>;
 }
 
 const TYPEWRITER_PHRASES = [
@@ -46,10 +63,10 @@ const TYPEWRITER_PHRASES = [
   "draft an email.",
   "summarize that paper.",
   "plan your weekend.",
-  "explain it like I'm five.",
+  "explain it like i'm five.",
   "pair-program with me.",
   "fix that pesky bug.",
-  "translate to 中文.",
+  "translate from chinese.",
   "write a haiku.",
   "brainstorm ideas.",
   "review my pull request.",
@@ -57,6 +74,21 @@ const TYPEWRITER_PHRASES = [
   "ship it.",
   "make it pretty.",
   "rubber-duck with me.",
+  "tune my prompt.",
+  "name my variables.",
+  "debug my nightmare.",
+  "write the docs.",
+  "refactor this mess.",
+  "deploy to production.",
+  "automate the boring stuff.",
+  "unpack this error.",
+  "find that memory leak.",
+  "tell me a joke.",
+  "take a break, i'll watch.",
+  "backup your work.",
+  "speak your mind.",
+  "tell me your thoughts.",
+  "what's on your mind?",
 ];
 
 const CHAT_MINIMAP_WIDTH = 36;
@@ -97,7 +129,7 @@ function Typewriter({ phrases }: { phrases: string[] }) {
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange }: Props) {
+export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, scrollToBottomRef, onLockToBottomChange }: Props) {
   const {
     loading, error, messages, entryIds, streamState,
     agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -116,14 +148,62 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, handleAgentEventRef,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked,
-    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
+    modelsRefreshKey, onBranchDataChange, onSystemPromptChange,
   });
+
+  const [timeFormat, setTimeFormat] = useState<"12" | "24">(() => {
+    if (typeof window === "undefined") return "24";
+    return (localStorage.getItem("pi-time-format") as "12" | "24") || "24";
+  });
+
+  const setBottomLock = useCallback((locked: boolean) => {
+    isBottomLocked = locked;
+    onLockToBottomChange?.(locked);
+  }, [onLockToBottomChange]);
+
+  const handleWheel = useCallback(() => {
+    if (isBottomLocked) setBottomLock(false);
+  }, [setBottomLock]);
+
+  const handleTouchMove = useCallback(() => {
+    if (isBottomLocked) setBottomLock(false);
+  }, [setBottomLock]);
+
+  // Auto-scroll when locked — runs after React commits new messages to DOM
+  useLayoutEffect(() => {
+    if (isBottomLocked && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
+  }, [messages, scrollContainerRef, streamState.streamingMessage]);
 
   const { soundEnabled, onSoundToggle, playDoneSound } = useAudio();
   const playDoneSoundRef = useRef(playDoneSound);
   playDoneSoundRef.current = playDoneSound;
   const soundEnabledRef = useRef(soundEnabled);
   soundEnabledRef.current = soundEnabled;
+
+  // Expose scroll-to-bottom function to parent
+  useEffect(() => {
+    if (scrollToBottomRef) {
+      scrollToBottomRef.current = () => {
+        if (isBottomLocked) {
+          setBottomLock(false);
+          return;
+        }
+        const el = scrollContainerRef.current;
+        if (!el) return;
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 10;
+        if (atBottom) {
+          setBottomLock(true);
+        } else {
+          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        }
+      };
+    }
+    return () => {
+      if (scrollToBottomRef) scrollToBottomRef.current = null;
+    };
+  }, [scrollContainerRef, scrollToBottomRef, setBottomLock]);
 
   // Wrap agent event handler to play sound on agent_end
   const origHandler = handleAgentEventRef.current;
@@ -207,7 +287,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       modelNames={modelNames}
       modelList={modelList}
       onModelChange={handleModelChange}
-      onCompact={session || isNew ? handleCompact : undefined}
+      onCompact={session ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
       compactError={compactError}
@@ -301,28 +381,22 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               className="mb-3"
               style={{
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
+                flexDirection: "column",
+                gap: 4,
                 marginLeft: 16,
                 marginRight: 52,
                 fontFamily: "var(--font-mono)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4, overflow: "hidden" }}>
-                <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: 0, color: "var(--text)", flexShrink: 0, whiteSpace: "nowrap" }}>π</span>
-                <span style={{ fontSize: 22, color: "var(--text)", fontWeight: 700, letterSpacing: 0, flexShrink: 0, whiteSpace: "nowrap" }}>Pi Agent Web</span>
-                <span style={{ fontSize: 14, flex: "1 1 0", minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", display: "block" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0, flex: 1, lineHeight: 1.4 }}>
+                <span style={{ fontSize: 32, fontWeight: 700, fontStyle: "italic", fontFamily: "Cambria Math, Georgia, 'Times New Roman', serif", color: "var(--text)" }}>π</span>
+                <span style={{ fontSize: 14, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                   <Typewriter phrases={TYPEWRITER_PHRASES} />
                 </span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
-                </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                </span>
+              <div style={{ display: "flex", gap: 16, fontSize: 11, color: "var(--text-muted)" }}>
+                <span>web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span></span>
+                <span>pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span></span>
               </div>
             </div>
             <NoticeShelf notices={notices} align="right" />
@@ -347,17 +421,34 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             <NoticeShelf notices={notices} floating align="right" />
           </div>
         </div>
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
+        <div ref={scrollContainerRef} onWheel={handleWheel} onTouchMove={handleTouchMove} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div style={{ maxWidth: 820, margin: "0 auto" }}>
               <ExtensionStatusBar statuses={extensionStatuses} />
               <ExtensionWidgets widgets={aboveEditorWidgets} />
 
             {(() => {
-              const toolResultsMap = new Map<string, import("@/lib/types").ToolResultMessage>();
-              for (const msg of messages) {
+              const filterToolResults = (map: Map<string, import("@/lib/types").ToolResultMessage>, ids: Set<string> | undefined): Map<string, import("@/lib/types").ToolResultMessage> => {
+                if (!ids || ids.size === 0) return new Map();
+                const filtered = new Map<string, import("@/lib/types").ToolResultMessage>();
+                for (const id of ids) {
+                  const r = map.get(id);
+                  if (r) filtered.set(id, r);
+                }
+                return filtered;
+              };
+              const allToolResultsMap = new Map<string, import("@/lib/types").ToolResultMessage>();
+              const toolCallIdsByMsgIdx = new Map<number, Set<string>>();
+              for (let i = 0; i < messages.length; i++) {
+                const msg = messages[i];
                 if (msg.role === "toolResult") {
-                  toolResultsMap.set((msg as import("@/lib/types").ToolResultMessage).toolCallId, msg as import("@/lib/types").ToolResultMessage);
+                  allToolResultsMap.set((msg as import("@/lib/types").ToolResultMessage).toolCallId, msg as import("@/lib/types").ToolResultMessage);
+                } else if (msg.role === "assistant") {
+                  const ids = new Set<string>();
+                  for (const block of ((msg as import("@/lib/types").AssistantMessage).content ?? [])) {
+                    if (block.type === "toolCall") ids.add((block as import("@/lib/types").ToolCallContent).toolCallId);
+                  }
+                  toolCallIdsByMsgIdx.set(i, ids);
                 }
               }
               let lastUserIdx = -1;
@@ -389,7 +480,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                   <MessageView
                     key={idx}
                     message={msg}
-                    toolResults={toolResultsMap}
+                    toolResults={msg.role === "assistant" ? filterToolResults(allToolResultsMap, toolCallIdsByMsgIdx.get(idx)) : undefined}
                     modelNames={modelNames}
                     entryId={entryIds[idx]}
                     onFork={agentRunning || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
@@ -399,6 +490,20 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     onEditContent={(content) => chatInputRef?.current?.insertIfEmpty(content)}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as import("@/lib/types").AgentMessage & { timestamp?: number }).timestamp : undefined}
+                    timeFormat={timeFormat}
+                    onToggleTimeFormat={() => {
+                      setTimeFormat((prev) => {
+                        const next = prev === "12" ? "24" : "12";
+                        localStorage.setItem("pi-time-format", next);
+                        return next;
+                      });
+                    }}
+                    onQuote={(content) => {
+                      const flat = content.replace(/\n/g, ' ');
+                      const excerpt = flat.length > 50 ? flat.slice(0, 50) + "..." : flat;
+                      const quote = `> ${excerpt}\n\n`;
+                      chatInputRef?.current?.appendText(quote);
+                    }}
                   />
                 );
                 if (!isVisible) return view;
@@ -414,17 +519,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             })()}
 
             {streamState.isStreaming && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} timeFormat={timeFormat} />
             )}
 
             {agentRunning && !streamState.streamingMessage && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase)}</span>
+                <span className="animate-[pulse_1.5s_infinite]"><PhaseLabel phase={agentPhase} /></span>
               </div>
-            )}
-
-            {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
             )}
 
             <div ref={messagesEndRef} />
@@ -436,6 +537,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
           streamingMessage={streamState.streamingMessage}
           scrollContainer={scrollContainerRef}
           messageRefs={messageRefs}
+          onUnlock={() => setBottomLock(false)}
         />
       </div>
 

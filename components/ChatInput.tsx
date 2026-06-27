@@ -51,6 +51,7 @@ export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
   addImages: (files: File[]) => void;
+  appendText: (text: string) => void;
 }
 
 const TOOL_PRESETS = ["off", "default", "full"] as const;
@@ -66,13 +67,13 @@ function compareModelOptions(a: ModelOption, b: ModelOption): number {
 
 const THINKING_LEVELS = ["auto", "off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const THINKING_LEVEL_DESC: Record<typeof THINKING_LEVELS[number], string> = {
-  auto: "沿用 pi 默认设置",
-  off: "关闭推理",
-  minimal: "最少推理",
-  low: "低强度推理",
-  medium: "中等推理",
-  high: "高强度推理",
-  xhigh: "最高强度推理",
+  auto: "Use pi default",
+  off: "No reasoning",
+  minimal: "Minimal reasoning",
+  low: "Low reasoning",
+  medium: "Medium reasoning",
+  high: "High reasoning",
+  xhigh: "Max reasoning",
 };
 
 function formatTokenCount(tokens: number): string {
@@ -136,6 +137,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownRect, setModelDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  const speechSupported = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  const [speechLang, setSpeechLang] = useState(() => {
+    if (typeof navigator === "undefined") return "en-US";
+    return navigator.languages?.[0] || navigator.language || "en-US";
+  });
+  const [speechDropdownOpen, setSpeechDropdownOpen] = useState(false);
+  const speechDropdownRef = useRef<HTMLDivElement>(null);
+
+  const speechLangs = typeof navigator !== "undefined" ? [...new Set([...(navigator.languages || [navigator.language || "en-US"])])] : ["en-US"];
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
@@ -183,6 +196,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
         ta.focus();
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    },
+    appendText(text: string) {
+      const ta = textareaRef.current;
+      if (!ta) {
+        setValue((v) => {
+          if (!v) return text;
+          const sep = v.endsWith("\n\n") ? "" : v.endsWith("\n") ? "\n" : "\n\n";
+          return v + sep + text;
+        });
+        return;
+      }
+      const prefix = ta.value && !ta.value.endsWith("\n\n") ? (ta.value.endsWith("\n") ? "\n" : "\n\n") : "";
+      const newVal = ta.value + prefix + text;
+      setValue(newVal);
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = newVal.length;
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -235,6 +269,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     clearImages();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
+      textareaRef.current.focus();
     }
   }, [clearImages]);
 
@@ -324,7 +359,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     setValue("");
     clearImages();
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.focus();
+    }
   }, [value, attachedImages, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearImages]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
@@ -528,15 +566,69 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
       }
+      if (speechDropdownRef.current && !speechDropdownRef.current.contains(e.target as Node)) {
+        setSpeechDropdownOpen(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // Speech recognition
+  const startListening = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = speechLang;
+
+    recognition.onresult = (event: Event & { results: SpeechRecognitionResultList }) => {
+      const transcript = Array.from(event.results)
+        .map((r) => r[0].transcript)
+        .join("");
+      if (event.results[event.results.length - 1].isFinal) {
+        setValue((v) => v + (v ? " " : "") + transcript);
+        setIsListening(false);
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+    textareaRef.current?.focus();
+  }, [speechLang]);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setIsListening(false);
+    textareaRef.current?.focus();
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
 
 
   return (
     <div
+      className="chat-input-container"
       style={{
         flexShrink: 0,
         background: "transparent",
@@ -748,6 +840,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </div>
           )}
           <div
+            onClick={() => textareaRef.current?.focus()}
             style={{
               display: "flex",
               gap: 8,
@@ -760,6 +853,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               padding: "10px 10px 10px 14px",
               boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
+              flex: 1,
+              position: "relative",
             } as React.CSSProperties}
           >
           <textarea
@@ -778,9 +873,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onPaste={handlePaste}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
-                ? "Steer 立即注入 / Follow-up 排队…"
+                ? "Steer / Follow-up…"
                 : isStreaming ? "Agent is running…"
-                : "Message… Type / for commands"
+                : "Ask anything… (/ for commands)"
             }
             rows={1}
             style={{
@@ -798,6 +893,75 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               overflow: "auto",
             }}
           />
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+
+          {value && (
+            <button
+              onClick={() => {
+                setValue("");
+                const ta = textareaRef.current;
+                if (ta) {
+                  ta.style.height = "auto";
+                  ta.focus();
+                }
+              }}
+              title="Clear input"
+              style={{
+                flexShrink: 0,
+                width: 28,
+                height: 28,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                borderRadius: "50%",
+                background: "var(--bg-panel)",
+                border: "1px solid var(--border)",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
+            <div className="show-on-touch">
+              <button
+                onClick={() => {
+                  const ta = textareaRef.current;
+                  if (ta) {
+                    const start = ta.selectionStart;
+                    const end = ta.selectionEnd;
+                    const newVal = value.slice(0, start) + "\n" + value.slice(end);
+                    setValue(newVal);
+                    ta.focus();
+                    requestAnimationFrame(() => {
+                      ta.selectionStart = ta.selectionEnd = start + 1;
+                      ta.style.height = "auto";
+                      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+                    });
+                  }
+                }}
+                title="New line"
+                style={{
+                  flexShrink: 0,
+                  width: 28,
+                  height: 28,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  borderRadius: "50%",
+                  background: "var(--bg-panel)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="10 9 6 13 10 17" />
+                  <path d="M6 13h11a2 2 0 0 0 2-2V5" />
+                </svg>
+              </button>
+          </div>
 
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
@@ -805,7 +969,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("steer")}
                   disabled={!value.trim() && !attachedImages.length}
-                  title="打断 Agent 当前运行，立即注入消息"
+                  title="Interrupt agent and inject message now"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -821,14 +985,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
-                  Steer
+                  <span className="hide-on-mobile">Steer</span>
                 </button>
               )}
               {onFollowUp && (
                 <button
                   onClick={() => sendQueued("followup")}
                   disabled={!value.trim() && !attachedImages.length}
-                  title="在 Agent 完成后排队发送"
+                  title="Send after agent completes"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -845,7 +1009,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
                     <line x1="2" y1="9" x2="8" y2="9" />
                   </svg>
-                  Follow-up
+                  <span className="hide-on-mobile">Follow-up</span>
                 </button>
               )}
             </div>
@@ -874,17 +1038,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <line x1="2" y1="7" x2="11" y2="7" />
                 <polyline points="7.5 3 12 7 7.5 11" />
               </svg>
-              Send
+              <span className="hide-on-mobile">Send</span>
             </button>
           )}
           </div>
         </div>
+        </div>
 
         {/* Bottom bar: left | center (context) | right */}
-        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 2 }}>
 
           {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
-          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 2 }}>
+          <div style={{ flex: "1 1 auto", display: "flex", alignItems: "center", gap: 2, overflow: "hidden", minWidth: 0 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isStreaming}
@@ -917,7 +1082,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </button>
             {/* Model selector — visible always, disabled during streaming */}
             {modelOptions.length > 0 && currentName && onModelChange && (
-                <div ref={dropdownRef} style={{ position: "relative" }}>
+                <div ref={dropdownRef} style={{ position: "relative", flex: "1 1 auto", overflow: "hidden", minWidth: 0 }}>
                   <button
                     onClick={(e) => {
                       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -929,7 +1094,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       display: "flex", alignItems: "center", gap: 6,
                       padding: "8px 12px",
                       height: 32,
-                      maxWidth: 220, overflow: "hidden",
+                      overflow: "hidden",
+                      width: "100%",
+                      textAlign: "left",
                       background: modelDropdownOpen ? "var(--bg-hover)" : "none",
                       border: "none",
                       borderRadius: 9,
@@ -957,7 +1124,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       <line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" />
                       <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
                     </svg>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{currentName}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: "1 1 auto", width: 0 }}>{currentName}</span>
                   </button>
                   {modelDropdownOpen && modelDropdownRect && (() => {
                     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -988,7 +1155,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                             return (
                               <button
                                 key={`${opt.provider}:${opt.modelId}`}
-                                onClick={() => { setModelDropdownOpen(false); if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId); }}
+                                onClick={() => { setModelDropdownOpen(false); if (!isActive|| isAutoModelSelection) onModelChange(opt.provider, opt.modelId); }}
                                 style={{
                                   display: "flex", alignItems: "center", gap: 8,
                                   width: "100%", padding: "7px 12px",
@@ -1018,9 +1185,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
           </div>
 
-          {/* spacer */}
-          <div style={{ flex: 1 }} />
-
           {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
           <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 2, marginLeft: "auto" }}>
             {!isStreaming && onThinkingLevelChange && (
@@ -1028,7 +1192,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
                   disabled={isStreaming}
-                  title="切换推理强度"
+                  title="Thinking level"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "8px 12px",
@@ -1057,7 +1221,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <line x1="7" y1="18" x2="12" y2="18" />
                     <line x1="8" y1="21" x2="11" y2="21" />
                   </svg>
-                  <span>{(() => {
+                  <span className="hide-on-mobile">{(() => {
                     const lvl = thinkingLevel ?? "auto";
                     if (lvl === "auto" || !thinkingLevelMap) return lvl;
                     const mapped = thinkingLevelMap[lvl];
@@ -1118,7 +1282,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
                   disabled={isStreaming}
-                  title="切换工具预设"
+                  title="Tools preset"
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "8px 12px",
@@ -1145,7 +1309,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
                   </svg>
-                  <span>{Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default"}</span>
+                  <span className="hide-on-mobile">{Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default"}</span>
                 </button>
                 {toolDropdownOpen && (
                   <div style={{
@@ -1157,7 +1321,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     {TOOL_PRESETS.map((lvl) => {
                       const preset = TOOL_PRESET_MAP[lvl];
                       const isActive = (toolPreset ?? "default") === preset;
-                      const desc = lvl === "off" ? "无工具，纯聊天" : lvl === "default" ? "4 项内置工具" : "全部内置工具";
+                      const desc = lvl === "off" ? "No tools, chat only" : lvl === "default" ? "4 built-in tools" : "All built-in tools";
                       return (
                         <button
                           key={lvl}
@@ -1225,15 +1389,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
                     e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
                   }}
-                  title={isCompacting ? "停止压缩" : "压缩上下文"}
+                  title={isCompacting ? "Stop compacting" : "Compact context"}
                 >
                   {isCompacting ? (
-                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>Compacting…</>
+                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg><span className="hide-on-mobile">Compacting…</span></>
                   ) : (
                     <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
                       <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
-                    </svg>Compact</>
+                    </svg><span className="hide-on-mobile">Compact</span></>
                   )}
                 </button>
               </div>
@@ -1242,7 +1406,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {isStreaming && (
               <button
                 onClick={onAbort}
-                title="停止 Agent"
+                title="Stop agent"
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "8px 14px",
@@ -1262,14 +1426,80 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                   <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
                 </svg>
-                Stop
+                <span className="hide-on-mobile">Stop</span>
               </button>
             )}
 
+            {speechSupported && (
+              <div ref={speechDropdownRef} style={{ position: "relative", display: "flex" }}>
+                <button
+                  onClick={isListening ? stopListening : () => setSpeechDropdownOpen((v) => !v)}
+                  title={isListening ? "Stop recording" : "Voice input"}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 3,
+                    height: 32, padding: "0 8px",
+                    background: isListening ? "rgba(239,68,68,0.15)" : speechDropdownOpen ? "var(--bg-hover)" : "none",
+                    border: "none", borderRadius: 9,
+                    color: isListening ? "#ef4444" : "var(--text-muted)",
+                    cursor: "pointer", flexShrink: 0,
+                    fontSize: 11, opacity: isListening ? 1 : 0.85,
+                    animation: isListening ? "pulse 1.5s ease-in-out infinite" : "none",
+                    transition: "background 0.12s, color 0.12s, opacity 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isListening) { e.currentTarget.style.background = "rgba(239,68,68,0.25)"; return; }
+                    e.currentTarget.style.background = "var(--bg-hover)";
+                    e.currentTarget.style.color = "var(--text)";
+                    e.currentTarget.style.opacity = "1";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (isListening) { e.currentTarget.style.background = "rgba(239,68,68,0.15)"; return; }
+                    e.currentTarget.style.background = speechDropdownOpen ? "var(--bg-hover)" : "none";
+                    e.currentTarget.style.color = "var(--text-muted)";
+                    e.currentTarget.style.opacity = "0.85";
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                    <line x1="5" y1="12" x2="5" y2="14" />
+                    <line x1="19" y1="12" x2="19" y2="14" />
+                    <line x1="12" y1="19" x2="12" y2="22" />
+                    <line x1="8" y1="22" x2="16" y2="22" />
+                  </svg>
+                </button>
+                {!isListening && speechDropdownOpen && (
+                  <div style={{
+                    position: "absolute", bottom: "calc(100% + 6px)", right: 0,
+                    zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
+                    borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+                    overflow: "hidden", minWidth: 140,
+                  }}>
+                    {speechLangs.map((code) => (
+                      <button
+                        key={code}
+                        onClick={() => { setSpeechLang(code); setSpeechDropdownOpen(false); startListening(); }}
+                        style={{
+                          display: "block", width: "100%", padding: "8px 14px",
+                          background: code === speechLang ? "var(--bg-selected)" : "none",
+                          border: "none",
+                          color: code === speechLang ? "var(--text)" : "var(--text-muted)",
+                          cursor: "pointer", fontSize: 12, textAlign: "left",
+                          fontFamily: "var(--font-mono)",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = code === speechLang ? "var(--bg-selected)" : "none"; }}
+                      >
+                        {code}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {onSoundToggle !== undefined && (
               <button
                 onClick={onSoundToggle}
-                title={soundEnabled ? "关闭完成提示音" : "开启完成提示音"}
+                title={soundEnabled ? "Disable completion sound" : "Enable completion sound"}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, padding: 0,

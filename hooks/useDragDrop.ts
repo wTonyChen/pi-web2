@@ -29,10 +29,11 @@ export function useDragDrop(onDrop: (files: File[]) => void) {
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
     counterRef.current = 0;
     setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    e.preventDefault();
     onDrop(files);
   }, [onDrop]);
 

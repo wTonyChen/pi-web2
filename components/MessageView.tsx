@@ -28,16 +28,19 @@ interface Props {
   onEditContent?: (content: string) => void;
   showTimestamp?: boolean;
   prevTimestamp?: number;
+  timeFormat?: "12" | "24";
+  onToggleTimeFormat?: () => void;
+  onQuote?: (content: string) => void;
 }
 
-function formatTime(ts?: number): string | null {
+function formatTime(ts?: number, use24h?: boolean): string | null {
   if (!ts) return null;
   const d = new Date(ts);
   const now = new Date();
   const isToday = d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: use24h === undefined ? undefined : !use24h });
   if (isToday) return time;
   const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
   return `${date} ${time}`;
@@ -62,12 +65,12 @@ function copyText(text: string): Promise<void> {
   }
 }
 
-export function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp }: Props) {
+export function MessageView({ message, isStreaming, toolResults, modelNames, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, timeFormat, onToggleTimeFormat, onQuote }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
+    return <UserMessageView message={message as UserMessage} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} timeFormat={timeFormat} onToggleTimeFormat={onToggleTimeFormat} onQuote={onQuote} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} timeFormat={timeFormat} onToggleTimeFormat={onToggleTimeFormat} onQuote={onQuote} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -79,7 +82,7 @@ export function MessageView({ message, isStreaming, toolResults, modelNames, ent
   return null;
 }
 
-function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
+function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, timeFormat, onToggleTimeFormat, onQuote }: {
   message: UserMessage;
   entryId?: string;
   onFork?: (entryId: string) => void;
@@ -87,8 +90,10 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
   onNavigate?: (entryId: string) => void;
   prevAssistantEntryId?: string;
   onEditContent?: (content: string) => void;
+  timeFormat?: "12" | "24";
+  onToggleTimeFormat?: () => void;
+  onQuote?: (content: string) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const content =
@@ -104,7 +109,7 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
       ? []
       : message.content.filter((b): b is ImageContent => b.type === "image");
 
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, timeFormat === "24");
   const canFork = !!entryId && !!onFork;
   const canNavigate = !!prevAssistantEntryId && !!onNavigate;
 
@@ -117,9 +122,8 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
 
   return (
     <div
+      className="message-group"
       style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
         <div
@@ -172,15 +176,11 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           gap: 6, marginTop: 3,
         }}>
-          <div style={{
-            display: "flex", gap: 3,
-            opacity: hovered ? 1 : 0,
-            pointerEvents: hovered ? "auto" : "none",
-            transition: "opacity 0.12s",
-          }}>
+          <div className="msg-actions" style={{ marginLeft: "auto" }}>
             <button
               onClick={copyContent}
               title="Copy message"
+              className={`action-btn${copied ? " copied" : ""}`}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
                 padding: "3px 8px", height: 22,
@@ -190,10 +190,7 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
                 cursor: "pointer",
                 fontSize: 11, fontWeight: 400,
                 whiteSpace: "nowrap",
-                transition: "color 0.12s",
               }}
-              onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-              onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
             >
               {copied ? (
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -207,70 +204,77 @@ function UserMessageView({ message, entryId, onFork, forking, onNavigate, prevAs
               )}
               {copied ? "Copied" : "Copy"}
             </button>
+            {onQuote && (
+              <button
+                onClick={() => onQuote(content)}
+                title="Quote this message"
+                className="action-btn"
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "3px 8px", height: 22,
+                  background: "none", border: "none",
+                  borderRadius: 5,
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  fontSize: 11, fontWeight: 400,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" /></svg>
+                Quote
+              </button>
+            )}
+            {canNavigate && (
+              <button
+                onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(content); }}
+                title="Edit from here — branches within this session"
+                className="action-btn"
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "3px 8px", height: 22,
+                  background: "none", border: "none",
+                  borderRadius: 5,
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  fontSize: 11, fontWeight: 400,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 10 20 15 15 20" />
+                  <path d="M4 4v7a4 4 0 0 0 4 4h12" />
+                </svg>
+                Edit
+              </button>
+            )}
+            {canFork && (
+              <button
+                onClick={() => { onFork!(entryId!); }}
+                disabled={forking}
+                title={forking ? "Creating new session…" : "New session — creates an independent copy from here"}
+                className={`action-btn${forking ? " forking" : ""}`}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "3px 8px", height: 22,
+                  background: "none", border: "none",
+                  borderRadius: 5,
+                  color: forking ? "var(--accent)" : "var(--text-dim)",
+                  cursor: forking ? "not-allowed" : "pointer",
+                  fontSize: 11, fontWeight: 400,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="6" y1="3" x2="6" y2="15" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+                {forking ? "Creating…" : "Fork"}
+              </button>
+            )}
           </div>
-          {(canFork || canNavigate) && (
-            <div style={{
-              display: "flex", gap: 3,
-              opacity: (hovered || forking) ? 1 : 0,
-              pointerEvents: (hovered || forking) ? "auto" : "none",
-              transition: "opacity 0.12s",
-            }}>
-              {canNavigate && (
-                <button
-                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(content); }}
-                  title="Edit from here — branches within this session"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 10 20 15 15 20" />
-                    <path d="M4 4v7a4 4 0 0 0 4 4h12" />
-                  </svg>
-                  Edit from here
-                </button>
-              )}
-              {canFork && (
-                <button
-                  onClick={() => { onFork!(entryId!); }}
-                  disabled={forking}
-                  title={forking ? "Creating new session…" : "New session — creates an independent copy from here"}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: forking ? "var(--accent)" : "var(--text-dim)",
-                    cursor: forking ? "not-allowed" : "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                  {forking ? "Creating…" : "New session"}
-                </button>
-              )}
-            </div>
-          )}
-          {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
+          {time && <span onClick={onToggleTimeFormat} style={{ fontSize: 10, color: "var(--text-dim)", cursor: "pointer" }}>{time}</span>}
         </div>
       )}
     </div>
@@ -284,6 +288,9 @@ function AssistantMessageView({
   modelNames,
   showTimestamp,
   prevTimestamp,
+  timeFormat,
+  onToggleTimeFormat,
+  onQuote,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -291,11 +298,22 @@ function AssistantMessageView({
   modelNames?: Record<string, string>;
   showTimestamp?: boolean;
   prevTimestamp?: number;
+  timeFormat?: "12" | "24";
+  onToggleTimeFormat?: () => void;
+  onQuote?: (content: string) => void;
 }) {
-  const time = showTimestamp ? formatTime(message.timestamp) : null;
+  const time = showTimestamp ? formatTime(message.timestamp, timeFormat === "24") : null;
   const blocks = message.content ?? [];
-  const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [speakDropdownOpen, setSpeakDropdownOpen] = useState(false);
+  const [speakLang, setSpeakLang] = useState(() => {
+    if (typeof navigator === "undefined") return "en-US";
+    return navigator.languages?.[0] || navigator.language || "en-US";
+  });
+  const speakLangs = typeof navigator !== "undefined"
+    ? [...new Set([...(navigator.languages || [navigator.language || "en-US"])])]
+    : ["en-US"];
+  const speakDropdownRef = useRef<HTMLDivElement>(null);
   const streamStartRef = useRef<number | null>(null);
   const [tps, setTps] = useState<number | null>(null);
   const blocksRef = useRef(blocks);
@@ -328,6 +346,12 @@ function AssistantMessageView({
     return map;
   }, [toolResults, message.timestamp]);
 
+  const totalToolTime = useMemo(() => {
+    let total = 0;
+    for (const secs of toolCallDurations.values()) total += secs;
+    return total;
+  }, [toolCallDurations]);
+
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
     .map((b) => b.text)
@@ -339,6 +363,18 @@ function AssistantMessageView({
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
+  // Close speak dropdown on outside click
+  useEffect(() => {
+    if (!speakDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (speakDropdownRef.current && !speakDropdownRef.current.contains(e.target as Node)) {
+        setSpeakDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [speakDropdownOpen]);
 
   useEffect(() => {
     if (!isStreaming) {
@@ -394,11 +430,123 @@ function AssistantMessageView({
     return () => clearInterval(id);
   }, [isStreaming]);
 
+  const renderActionButtons = () => (
+    <>
+      {textContent && !isStreaming && (
+        <button
+          onClick={copyContent}
+          title="Copy message"
+          className={`action-btn${copied ? " copied" : ""}`}
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            padding: "3px 8px", height: 22,
+            background: "none", border: "none",
+            borderRadius: 5,
+            color: copied ? "var(--accent)" : "var(--text-dim)",
+            cursor: "pointer",
+            fontSize: 11, fontWeight: 400,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {copied ? (
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      )}
+      {textContent && !isStreaming && (
+        <div ref={speakDropdownRef} style={{ position: "relative", display: "flex" }}>
+        <button
+          onClick={() => setSpeakDropdownOpen((v) => !v)}
+          title="Speak this message"
+          className="action-btn"
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            padding: "3px 8px", height: 22,
+            background: speakDropdownOpen ? "var(--bg-hover)" : "none", border: "none",
+            borderRadius: 5,
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            fontSize: 11, fontWeight: 400,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+          </svg>
+          Speak
+        </button>
+        {speakDropdownOpen && (
+          <div style={{
+            position: "absolute", bottom: "calc(100% + 4px)", right: 0,
+            zIndex: 100, background: "var(--bg)", border: "1px solid var(--border)",
+            borderRadius: 8, boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+            overflow: "hidden", minWidth: 120,
+          }}>
+            {speakLangs.map((code) => (
+              <button
+                key={code}
+                onClick={() => {
+                  setSpeakLang(code);
+                  setSpeakDropdownOpen(false);
+                  speechSynthesis.cancel();
+                  const utter = new SpeechSynthesisUtterance(textContent);
+                  utter.lang = code;
+                  speechSynthesis.speak(utter);
+                }}
+                style={{
+                  display: "block", width: "100%",
+                  padding: "6px 14px", border: "none", background: code === speakLang ? "var(--bg-selected)" : "none",
+                  color: code === speakLang ? "var(--text)" : "var(--text-muted)",
+                  cursor: "pointer", fontSize: 13, textAlign: "left",
+                  transition: "background 0.1s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = code === speakLang ? "var(--bg-selected)" : "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = code === speakLang ? "var(--bg-selected)" : "none"; }}
+              >
+                {code}
+              </button>
+            ))}
+          </div>
+        )}
+        </div>
+      )}
+      {onQuote && textContent && !isStreaming && (
+        <button
+          onClick={() => onQuote(textContent)}
+          title="Quote this message"
+          className="action-btn"
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            padding: "3px 8px", height: 22,
+            background: "none", border: "none",
+            borderRadius: 5,
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            fontSize: 11, fontWeight: 400,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z" /><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" /></svg>
+          Quote
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div
+      className="message-group"
       style={{ marginBottom: 16 }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       {/* Model label */}
       <div
@@ -426,7 +574,7 @@ function AssistantMessageView({
             <>
 
               {est > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title="预估 token 数（流式接收中）">
+                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title="Estimated tokens (streaming)">
                   <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
                     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
@@ -450,71 +598,57 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blocks.map((block, i) => (
-          <BlockView key={i} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(i) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} />
+          <BlockView key={i} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(i) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} />
         ))}
       </div>
 
-      <div style={{
+      <div className="hide-on-mobile" style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
         {message.usage && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {formatUsage(message.usage)}
+            {formatUsage(message.usage)}{totalToolTime > 0 ? ` · ${totalToolTime}s` : ""}
           </div>
         )}
-        {textContent && !isStreaming && (
-          <button
-            onClick={copyContent}
-            title="Copy message"
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: "3px 8px", height: 22,
-              background: "none", border: "none",
-              borderRadius: 5,
-              color: copied ? "var(--accent)" : "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 11, fontWeight: 400,
-              whiteSpace: "nowrap",
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? "auto" : "none",
-              transition: "opacity 0.12s, color 0.12s",
-            }}
-            onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}
-            onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = "var(--text-dim)"; }}
-          >
-            {copied ? (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-            )}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        )}
+        <div className="msg-actions" style={{ marginLeft: "auto" }}>
+          {renderActionButtons()}
+        </div>
         {time && !isStreaming && (
-          <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
+          <span onClick={onToggleTimeFormat} style={{ fontSize: 10, color: "var(--text-dim)", cursor: "pointer" }}>{time}</span>
+        )}
+      </div>
+      <div className="show-on-mobile msg-bottom-mobile">
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {message.usage && !isStreaming && (
+            <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              {formatUsageMobile(message.usage)}{totalToolTime > 0 ? ` · ${totalToolTime}s` : ""}
+            </div>
+          )}
+          {time && !isStreaming && (
+            <span onClick={onToggleTimeFormat} style={{ fontSize: 10, color: "var(--text-dim)", cursor: "pointer", marginLeft: "auto" }}>{time}</span>
+          )}
+        </div>
+        {textContent && !isStreaming && (
+          <div className="msg-actions">
+            {renderActionButtons()}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number> }) {
+function BlockView({ block, toolResults, isStreaming, streamingDuration }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} />;
+    return <ThinkingBlock block={block as ThinkingContent} isStreaming={isStreaming} duration={streamingDuration} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
-    const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} />;
+    return <ToolCallBlock block={tc} result={result} />;
   }
   return null;
 }
@@ -523,8 +657,19 @@ function TextBlock({ block, isStreaming }: { block: TextContent; isStreaming?: b
   return <MarkdownBody isStreaming={isStreaming}>{block.text}</MarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration }: { block: ThinkingContent; duration?: number }) {
+function ThinkingBlock({ block, isStreaming, duration }: { block: ThinkingContent; isStreaming?: boolean; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
+  const [liveSeconds, setLiveSeconds] = useState(0);
+  const estimatedTokens = Math.round(block.thinking.length / 4);
+  useEffect(() => {
+    if (!isStreaming || duration !== undefined) return;
+    const start = Date.now();
+    const id = window.setInterval(() => {
+      setLiveSeconds(Math.round((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isStreaming, duration]);
+  const displayDuration = isStreaming ? (duration ?? liveSeconds) : undefined;
   return (
     <div
       style={{
@@ -550,10 +695,11 @@ function ThinkingBlock({ block, duration }: { block: ThinkingContent; duration?:
           textAlign: "left",
         }}
       >
-        <span>Thinking</span>
-        {duration !== undefined && (
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
-        )}
+        <span>
+          {isStreaming
+            ? `Thinking${displayDuration !== undefined ? ` · ${displayDuration}s` : ""}`
+            : `Thought · ~${estimatedTokens.toLocaleString()} tokens`}
+        </span>
       </button>
       {expanded && (
         <div
@@ -575,7 +721,7 @@ function ThinkingBlock({ block, duration }: { block: ThinkingContent; duration?:
 }
 
 
-function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
+function ToolCallBlock({ block, result }: { block: ToolCallContent; result?: ToolResultMessage }) {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
 
@@ -620,9 +766,6 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {getToolPreview(block)}
         </span>
-        {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
-        )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
         </svg>
@@ -926,6 +1069,21 @@ function formatUsage(usage: {
   if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
   if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
   if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache`);
+  if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+  return parts.join(" · ");
+}
+
+function formatUsageMobile(usage: {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: { total: number };
+}): string {
+  const parts = [];
+  if (usage.input) parts.push(`↑${usage.input.toLocaleString()}`);
+  if (usage.output) parts.push(`↓${usage.output.toLocaleString()}`);
+  if (usage.cacheRead) parts.push(`*${usage.cacheRead.toLocaleString()}`);
   if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
   return parts.join(" · ");
 }

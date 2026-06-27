@@ -1,10 +1,10 @@
 {
-  "name": "@agegr/pi-web",
+  "name": "wtonychen/pi-web2",
   "version": "0.7.0",
-  "description": "Web UI for the pi coding agent",
+  "description": "Web UI for the Pi Coding Agent",
   "license": "MIT",
   "bin": {
-    "pi-web": "bin/pi-web.js"
+    "pi-web2": "bin/pi-web.js"
   },
   "files": [
     "bin",

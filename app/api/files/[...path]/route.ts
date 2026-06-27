@@ -16,7 +16,7 @@ const IGNORED_NAMES = new Set([
 
 const IGNORED_SUFFIXES = [".pyc"];
 
-const TEXT_PREVIEW_MAX_BYTES = 256 * 1024;
+const TEXT_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 const IMAGE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
@@ -72,7 +72,7 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   mjs: "javascript", cjs: "javascript", py: "python", rb: "ruby",
   go: "go", rs: "rust", java: "java", kt: "kotlin", swift: "swift",
   c: "c", cpp: "cpp", h: "c", hpp: "cpp", cs: "csharp",
-  html: "html", htm: "html", css: "css", scss: "css", less: "css",
+  html: "html", htm: "html", svg: "xml", css: "css", scss: "css", less: "css",
   json: "json", jsonl: "json", yaml: "yaml", yml: "yaml",
   toml: "toml", xml: "xml", md: "markdown", mdx: "markdown",
   sh: "bash", bash: "bash", zsh: "bash", fish: "bash",
@@ -284,9 +284,12 @@ export async function GET(
     const filePath = filePathFromSegments(segments);
     const type = request.nextUrl.searchParams.get("type") ?? "list";
 
-    const allowedRoots = await getAllowedFileRoots();
-    if (!isFilePathAllowed(filePath, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    // Check file access unless ALLOW_FULL_FS_ACCESS is explicitly "true"
+    if (process.env.ALLOW_FULL_FS_ACCESS !== "true") {
+      const allowedRoots = await getAllowedFileRoots();
+      if (!isFilePathAllowed(filePath, allowedRoots)) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
     }
 
     let stat: fs.Stats;
@@ -301,7 +304,7 @@ export async function GET(
         return NextResponse.json({ error: "Not a file" }, { status: 400 });
       }
       const imageMime = getImageMime(filePath);
-      if (imageMime) {
+      if (imageMime && getExt(filePath) !== "svg") {
         if (stat.size > IMAGE_PREVIEW_MAX_BYTES) {
           return NextResponse.json({ error: "Image too large (>10MB)" }, { status: 413 });
         }
@@ -321,6 +324,20 @@ export async function GET(
       const content = fs.readFileSync(filePath, "utf-8");
       const language = getLanguage(filePath);
       return NextResponse.json({ content, language, size: stat.size });
+    }
+
+    if (type === "raw") {
+      if (!stat.isFile()) {
+        return NextResponse.json({ error: "Not a file" }, { status: 400 });
+      }
+      const mime = getImageMime(filePath) || getAudioMime(filePath) || getDocumentMime(filePath) || "application/octet-stream";
+      return new Response(createFileBodyStream(filePath), {
+        headers: {
+          "Content-Type": mime,
+          "Content-Length": String(stat.size),
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(path.basename(filePath))}"`,
+        },
+      });
     }
 
     if (type === "meta") {
@@ -423,8 +440,12 @@ export async function GET(
     }
 
     const names = fs.readdirSync(filePath);
+    const showHidden = request.nextUrl.searchParams.get("showHidden") === "true";
     const entries = names
-      .filter((name) => !IGNORED_NAMES.has(name) && !IGNORED_SUFFIXES.some((s) => name.endsWith(s)))
+      .filter((name) => {
+        if (showHidden) return true;
+        return !IGNORED_NAMES.has(name) && !IGNORED_SUFFIXES.some((s) => name.endsWith(s));
+      })
       .map((name) => {
         const full = path.join(filePath, name);
         try {

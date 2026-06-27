@@ -20,10 +20,11 @@ interface FileData {
   size: number;
 }
 
-const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
+const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif"]);
 const AUDIO_EXTS = new Set(["mp3", "wav", "ogg", "oga", "opus", "m4a", "aac", "flac", "weba", "webm"]);
 const DOCUMENT_PREVIEW_EXTS = new Set(["pdf", "docx"]);
 const DOCX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
+const LIVE_PREVIEW_MAX_BYTES = 512 * 1024;
 
 function isImagePath(filePath: string): boolean {
   const base = getFileName(filePath);
@@ -353,7 +354,7 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div
+      <div className="file-preview-toolbar"
         style={{
           display: "flex",
           alignItems: "center",
@@ -364,12 +365,12 @@ function ImageViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
           color: "var(--text-dim)",
           background: "var(--bg)",
           flexShrink: 0,
+          overflowX: "auto",
+          whiteSpace: "nowrap",
         }}
       >
-        <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
-        <span style={{ marginLeft: "auto" }}>{ext || "image"}</span>
+        <span style={{ fontFamily: "var(--font-mono)", flexShrink: 0 }} title={filePath}>{getRelativeFilePath(filePath, cwd)}</span>
+        <span style={{ marginLeft: "auto", flexShrink: 0 }}>{ext || "image"}</span>
         {naturalSize && <span>{naturalSize.w} × {naturalSize.h}</span>}
         {formatSizeStr && <span>{formatSizeStr}</span>}
         <span
@@ -487,7 +488,7 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div
+      <div className="file-preview-toolbar"
         style={{
           display: "flex",
           alignItems: "center",
@@ -498,11 +499,11 @@ function AudioViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
           color: "var(--text-dim)",
           background: "var(--bg)",
           flexShrink: 0,
+          overflowX: "auto",
+          whiteSpace: "nowrap",
         }}
       >
-        <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
+        <span style={{ fontFamily: "var(--font-mono)", flexShrink: 0 }} title={filePath}>{getRelativeFilePath(filePath, cwd)}</span>
         <span style={{ marginLeft: "auto" }}>{ext || "audio"}</span>
         {duration != null && <span>{formatDuration(duration)}</span>}
         {size != null && <span>{formatSize(size)}</span>}
@@ -621,7 +622,7 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div
+      <div className="file-preview-toolbar"
         style={{
           display: "flex",
           alignItems: "center",
@@ -632,11 +633,11 @@ function DocumentViewer({ filePath, cwd }: { filePath: string; cwd?: string }) {
           color: "var(--text-dim)",
           background: "var(--bg)",
           flexShrink: 0,
+          overflowX: "auto",
+          whiteSpace: "nowrap",
         }}
       >
-        <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
+        <span style={{ fontFamily: "var(--font-mono)", flexShrink: 0 }} title={filePath}>{getRelativeFilePath(filePath, cwd)}</span>
         <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
         {size != null && <span>{formatSize(size)}</span>}
         <DownloadLink filePath={filePath} />
@@ -700,6 +701,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
   const [wrapLines, setWrapLines] = useState(false);
   const [watching, setWatching] = useState(false);
   const [changeCount, setChangeCount] = useState(0);
+  const [copied, setCopied] = useState(false);
   const esRef = useRef<EventSource | null>(null);
 
   const fetchContent = useCallback((filePath: string, isRefresh = false) => {
@@ -747,32 +749,23 @@ function TextFileViewer({ filePath, cwd }: Props) {
 
     fetchContent(filePath).then((d) => {
       if (d?.language === "markdown") setPreviewMode(true);
+      // Only set up live watch for files <= 512KB
+      if (d && d.size <= LIVE_PREVIEW_MAX_BYTES) {
+        const encoded = encodeFilePathForApi(filePath);
+        const es = new EventSource(`/api/files/${encoded}?type=watch`);
+        esRef.current = es;
+        es.addEventListener("connected", () => setWatching(true));
+        es.addEventListener("change", () => fetchContent(filePath, true));
+        es.addEventListener("error", () => setWatching(false));
+        es.onerror = () => setWatching(false);
+      }
     }).finally(() => setLoading(false));
 
-    // Set up SSE watch
-    const encoded = encodeFilePathForApi(filePath);
-    const es = new EventSource(`/api/files/${encoded}?type=watch`);
-    esRef.current = es;
-
-    es.addEventListener("connected", () => {
-      setWatching(true);
-    });
-
-    es.addEventListener("change", () => {
-      fetchContent(filePath, true);
-    });
-
-    es.addEventListener("error", () => {
-      setWatching(false);
-    });
-
-    es.onerror = () => {
-      setWatching(false);
-    };
-
     return () => {
-      es.close();
-      esRef.current = null;
+      if (esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
+      }
     };
   }, [filePath, fetchContent]);
 
@@ -795,6 +788,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
   if (!data) return null;
 
   const isHtml = data.language === "html";
+  const isSvg = getFileExt(filePath) === "svg";
   const isMarkdown = data.language === "markdown";
   const lines = data.content.split("\n");
   const hasDiff = prevContent !== null && prevContent !== data.content;
@@ -802,7 +796,7 @@ function TextFileViewer({ filePath, cwd }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {/* Status bar */}
-      <div
+      <div className="file-preview-toolbar"
         style={{
           display: "flex",
           alignItems: "center",
@@ -813,19 +807,18 @@ function TextFileViewer({ filePath, cwd }: Props) {
           color: "var(--text-dim)",
           background: "var(--bg)",
           flexShrink: 0,
+          overflowX: "auto",
+          whiteSpace: "nowrap",
         }}
       >
-        <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
-        <span style={{ marginLeft: "auto" }}>{data.language}</span>
-        {viewMode === "source" && <span>{lines.length} lines</span>}
-        <span>{formatSize(data.size)}</span>
+        <span style={{ fontFamily: "var(--font-mono)", flexShrink: 0 }} title={filePath}>{getRelativeFilePath(filePath, cwd)}</span>
+        <span style={{ marginLeft: "auto", flexShrink: 0 }}>{data.language}</span>
+        {viewMode === "source" && <span style={{ flexShrink: 0 }}>{lines.length} lines</span>}
+        <span style={{ flexShrink: 0 }}>{formatSize(data.size)}</span>
 
-        {/* Live watch indicator */}
         <span
           title={watching ? "Live sync active" : "Not watching"}
-          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
+          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)", flexShrink: 0 }}
         >
           <span
             style={{
@@ -874,19 +867,96 @@ function TextFileViewer({ filePath, cwd }: Props) {
             onClick={() => setWrapLines((v) => !v)}
             title={wrapLines ? "Disable word wrap" : "Enable word wrap"}
             style={{
-              padding: "2px 8px", fontSize: 11, cursor: "pointer",
+              display: "flex", alignItems: "center",
+              padding: "2px 6px", cursor: "pointer",
               background: wrapLines ? "var(--bg-selected)" : "var(--bg-hover)",
               color: wrapLines ? "var(--text)" : "var(--text-muted)",
               border: "1px solid var(--border)", borderRadius: 5,
-              fontWeight: wrapLines ? 600 : 400,
             }}
           >
-            wrap
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><polyline points="15 18 18 21 21 18" /><line x1="18" y1="10" x2="18" y2="21" /></svg>
           </button>
         )}
 
-        {/* HTML source/preview toggle */}
-        {isHtml && viewMode === "source" && (
+        {/* Copy whole file */}
+        <button
+          onClick={async () => {
+            try {
+              if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(data.content);
+              } else {
+                const ta = document.createElement("textarea");
+                ta.value = data.content;
+                ta.style.position = "fixed";
+                ta.style.opacity = "0";
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                document.body.removeChild(ta);
+              }
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            } catch {}
+          }}
+          title="Copy whole file"
+          style={{
+            padding: "2px 8px", fontSize: 11, cursor: "pointer",
+            background: copied ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
+            color: copied ? "#4ade80" : "var(--text-muted)",
+            border: "1px solid var(--border)", borderRadius: 5,
+            transition: "background 0.15s, color 0.15s",
+          }}
+        >
+          {copied ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+          )}
+        </button>
+
+        {/* Download file */}
+        <a
+          href={encodeURI(`/api/files/${encodeFilePathForApi(filePath)}?type=raw`)}
+          download={getFileName(filePath)}
+          title="Download file"
+          style={{
+            display: "flex", alignItems: "center",
+            padding: "2px 6px", fontSize: 11, cursor: "pointer",
+            textDecoration: "none",
+            color: "var(--text-muted)",
+            border: "1px solid var(--border)", borderRadius: 5,
+            background: "var(--bg-hover)",
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+        </a>
+
+        {/* HTML/SVG: open in new window */}
+        {(isHtml || isSvg) && viewMode === "source" && (
+          <button
+            onClick={() => {
+              const w = window.open('about:blank', '_blank', 'width=960,height=720');
+              if (w) {
+                w.document.open();
+                w.document.write(data.content);
+                w.document.close();
+              }
+            }}
+            title="Open in new window"
+            style={{
+              display: "flex", alignItems: "center",
+              padding: "2px 6px", cursor: "pointer",
+              color: "var(--text-muted)",
+              border: "1px solid var(--border)", borderRadius: 5,
+              background: "var(--bg-hover)",
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </button>
+        )}
+
+        {/* HTML/SVG source/preview toggle */}
+        {(isHtml || isSvg) && viewMode === "source" && (
           <div style={{ display: "flex", borderRadius: 5, overflow: "hidden", border: "1px solid var(--border)" }}>
             <button
               onClick={() => setPreviewMode(false)}
@@ -946,12 +1016,12 @@ function TextFileViewer({ filePath, cwd }: Props) {
       <div style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
         {viewMode === "diff" && hasDiff ? (
           <DiffView oldContent={prevContent!} newContent={data.content} language={data.language} />
-        ) : isHtml && previewMode ? (
+        ) : (isHtml || isSvg) && previewMode ? (
           <iframe
             srcDoc={data.content}
             sandbox="allow-scripts"
             style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
-            title="HTML preview"
+            title="Browser preview"
           />
         ) : isMarkdown && previewMode ? (
           <div

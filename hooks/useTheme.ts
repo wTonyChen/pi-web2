@@ -47,7 +47,7 @@ export function useTheme() {
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const supportsVT = typeof document.startViewTransition === "function";
 
-    if (!supportsVT || reduceMotion) {
+    if (!0 || !supportsVT || reduceMotion) {
       apply();
       return;
     }

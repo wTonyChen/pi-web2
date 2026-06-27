@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { FileExplorer } from "./FileExplorer";
+import { useTheme } from "@/hooks/useTheme";
 
 interface Props {
   selectedSessionId: string | null;
@@ -51,10 +52,8 @@ function getRecentCwds(sessions: SessionInfo[]): string[] {
 
 function shortenCwd(cwd: string, homeDir?: string): string {
   const path = (homeDir && cwd.startsWith(homeDir)) ? "~" + cwd.slice(homeDir.length) : cwd;
-  const sep = path.includes("/") ? "/" : "\\";
-  const parts = path.split(sep).filter(Boolean);
-  if (parts.length <= 2) return path;
-  return "…/" + parts.slice(-2).join(sep);
+  if (path.length <= 30) return path;
+  return path.slice(0, 14) + "…" + path.slice(-15);
 }
 
 
@@ -158,7 +157,7 @@ function PiAgentTitle() {
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Agent Web";
+  const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "π";
   const display = useScramble(target, scrambling);
 
   const triggerScramble = useCallback((toVersion: boolean) => {
@@ -185,10 +184,13 @@ function PiAgentTitle() {
       onClick={handleClick}
       style={{
         background: "none", border: "none", padding: 0, cursor: "default",
-        fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
+        fontWeight: 700, fontSize: showVersion ? 12 : 32, fontStyle: "italic",
+        lineHeight: 1,
+        height: 32,
+        letterSpacing: "-0.01em",
         color: showVersion ? "var(--accent)" : "var(--text)",
-        fontFamily: "var(--font-mono)",
-        minWidth: "6ch",
+        fontFamily: showVersion ? "var(--font-mono)" : "Cambria Math, Georgia, 'Times New Roman', serif",
+        minWidth: "2ch",
       }}
     >
       {display}
@@ -197,6 +199,7 @@ function PiAgentTitle() {
 }
 
 export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention }: Props) {
+  const { isDark, toggleTheme } = useTheme();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +216,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerKey, setExplorerKey] = useState(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
+  const [showHiddenFiles, setShowHiddenFiles] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -374,18 +378,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               onClick={handleNewSession}
               disabled={!selectedCwd}
               style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                display: "flex", alignItems: "center", justifyContent: "center",
                 background: "var(--bg-hover)",
                 border: "1px solid var(--border)",
                 color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
                 cursor: selectedCwd ? "pointer" : "not-allowed",
-                height: 32,
-                paddingLeft: 10,
-                paddingRight: 12,
+                width: 32, height: 32, padding: 0,
                 borderRadius: 7,
                 fontSize: 12,
                 fontWeight: 500,
-                letterSpacing: "-0.01em",
                 flexShrink: 0,
                 transition: "background 0.12s, color 0.12s, border-color 0.12s",
               }}
@@ -406,7 +407,44 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 <line x1="6" y1="1" x2="6" y2="11" />
                 <line x1="1" y1="6" x2="11" y2="6" />
               </svg>
-              New
+            </button>
+            <button
+              onClick={() => toggleTheme()}
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 32, height: 32, padding: 0,
+                background: "var(--bg-hover)",
+                border: "1px solid var(--border)",
+                borderRadius: 7,
+                color: "var(--text-muted)", cursor: "pointer", flexShrink: 0,
+                transition: "background 0.12s, color 0.12s, border-color 0.12s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--bg-selected)";
+                e.currentTarget.style.color = "var(--accent)";
+                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--bg-hover)";
+                e.currentTarget.style.color = "var(--text-muted)";
+                e.currentTarget.style.borderColor = "var(--border)";
+              }}
+            >
+              {isDark ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
             </button>
             <button
               onClick={() => loadSessions(false)}
@@ -754,7 +792,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               >
                 <polyline points="3 2 7 5 3 8" />
               </svg>
-              Explorer
+              Working Directory
+            </button>
+            <button
+              onClick={() => setShowHiddenFiles((v) => !v)}
+              title={showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 26, height: 26, padding: 0, marginRight: 6,
+                background: showHiddenFiles ? "rgba(37,99,235,0.12)" : "none",
+                border: "none",
+                color: showHiddenFiles ? "var(--accent)" : "var(--text-dim)",
+                cursor: "pointer",
+                borderRadius: 5,
+                flexShrink: 0,
+                transition: "color 0.3s, background 0.3s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = showHiddenFiles ? "var(--accent)" : "var(--text-dim)"; e.currentTarget.style.background = showHiddenFiles ? "rgba(37,99,235,0.12)" : "none"; }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
             </button>
             <button
               onClick={() => {
@@ -797,6 +857,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 onOpenFile={onOpenFile ?? (() => {})}
                 refreshKey={explorerKey}
                 onAtMention={onAtMention}
+                showHidden={showHiddenFiles}
               />
             </div>
           )}
@@ -890,7 +951,6 @@ function SessionItem({
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
-  const [hovered, setHovered] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -950,8 +1010,7 @@ function SessionItem({
   return (
     <div
       onClick={confirmDelete || renaming ? undefined : onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); }}
+      className={`session-item${isSelected ? " is-selected" : ""}`}
       style={{
         height: ITEM_HEIGHT,
         display: "flex",
@@ -959,12 +1018,10 @@ function SessionItem({
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
         paddingRight: 8,
         cursor: confirmDelete || renaming ? "default" : "pointer",
-        background: confirmDelete
-          ? "rgba(239,68,68,0.06)"
-          : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
-        borderLeft: confirmDelete
-          ? "2px solid #ef4444"
-          : isSelected ? "2px solid var(--accent)" : "2px solid transparent",
+        background: confirmDelete ? "rgba(239,68,68,0.06)" : undefined,
+        boxShadow: confirmDelete
+          ? "inset -3px 0 0 0 #ef4444"
+          : isSelected ? "inset -3px 0 0 0 var(--accent)" : "none",
         transition: "background 0.1s",
         opacity: deleting ? 0.5 : 1,
         gap: 6,
@@ -1052,7 +1109,7 @@ function SessionItem({
             <div
               style={{
                 fontSize: 12,
-                fontWeight: isSelected ? 500 : 400,
+                fontWeight: isSelected ? 700 : 400,
                 lineHeight: 1.4,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -1065,7 +1122,7 @@ function SessionItem({
             </div>
             <div style={{ marginTop: 2, display: "flex", gap: 8, color: "var(--text-dim)", fontSize: 11 }}>
               <span title={session.modified}>{formatRelativeTime(session.modified)}</span>
-              <span>{session.messageCount} msgs</span>
+              <span>{session.messageCount} messages</span>
             </div>
           </div>
 
@@ -1090,8 +1147,7 @@ function SessionItem({
           )}
 
           {/* Action buttons — shown on hover */}
-          {hovered && (
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <div className="session-item-actions">
               <button
                 onClick={startRename}
                 title="Rename"
@@ -1148,7 +1204,6 @@ function SessionItem({
                 </svg>
               </button>
             </div>
-          )}
         </>
       )}
     </div>

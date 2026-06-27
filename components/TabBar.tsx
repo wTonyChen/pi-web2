@@ -36,6 +36,13 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
           <div
             key={tab.id}
             onClick={() => onSelectTab(tab.id)}
+            onMouseDown={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+                e.stopPropagation();
+                onCloseTab(tab.id);
+              }
+            }}
             style={{
               display: "flex",
               alignItems: "center",
