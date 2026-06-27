@@ -1,55 +1,92 @@
-# pi-web
+# pi-web2
 
-[中文文档](./README.zh-CN.md)
+[中文](./README.zh.md)
 
-Local web UI for the [pi coding agent](https://github.com/badlogic/pi-mono). pi-web reads your local pi session files and gives you a browser workspace for session browsing, real-time chat, model configuration, skill management, and project file preview.
-
-![Pi Web shows the same pi session with structured Markdown, tool calls, and project navigation beside the CLI](./docs/screenshot2.png)
-
-The same pi session in CLI and pi-web: structured tool calls, readable Markdown, session browsing, and cleaner results.
+A local web UI for the [Pi Coding Agent](https://github.com/badlogic/pi-mono). It reads Pi's session files from your machine, providing session management, live conversations, model configuration, skill management, and project file preview — all in your browser.
 
 ## Quick Start
 
-**Run without installing:**
+**Run directly without installation:**
 
 ```bash
-npx @agegr/pi-web@latest
+npx github:wtonychen/pi-web2
 ```
 
 **Or install globally:**
 
 ```bash
-npm install -g @agegr/pi-web
-pi-web
+npm install -g https://github.com/wtonychen/pi-web2
+pi-web2
 ```
 
-Then open [http://localhost:30141](http://localhost:30141). The CLI will try to open the browser automatically after the server is ready.
+Open [http://localhost:30141](http://localhost:30141) after starting. The CLI will attempt to auto-open the browser once the server is ready.
 
 **Options:**
 
 ```bash
-pi-web --port 8080              # custom port
-pi-web --hostname 127.0.0.1     # local access only
-pi-web -p 8080 -H 127.0.0.1     # combine options
+pi-web2 --port 8080              # Custom port
+pi-web2 --hostname 127.0.0.1     # Local-only access
+pi-web2 -p 8080 -H 127.0.0.1     # Combined
 
-PORT=8080 pi-web                # environment variable is also supported
+PORT=8080 pi-web2                # Env var also works
 ```
 
 ## Features
 
-- **Pick work back up**: browse previous pi conversations by project without digging through terminal history or session paths.
-- **Try different directions safely**: continue from an earlier message or fork a session into a separate route.
-- **Chat beside the project**: browse files on the left and preview source, docs, images, audio, and PDFs on the right while the agent works.
-- **See session state clearly**: context usage, cost, compaction state, and system prompt details are visible from the top bar.
-- **Configure less from the terminal**: manage models, login/API keys, model tests, and skill switches from the web UI.
+- **Pick up where you left off**: Open the web UI and find past Pi conversations organized by project — no need to dig through terminal history or remember session paths.
+- **Branch out with confidence**: Fork from any past message to try a different direction, or create an independent session without cluttering the original one.
+- **Browse while chatting**: Explore project files in the sidebar, preview source code, documents, images, audio, and PDFs on the right — files auto-refresh on change, perfect for reviewing agent edits as they happen.
+- **Stay in the loop**: Context usage, token cost, compaction status, and system prompt are all visible at a glance in the top bar — no more long sessions feeling like a black box.
+- **Fewer tool switches**: Models, API keys, model testing, and skill toggles are all manageable from the web UI — configure your agent without jumping between tools.
+
+## What's Different from Upstream
+
+A fork of [@agegr/pi-web](https://github.com/agegr/pi-web) focused on detail polish and mobile experience (mostly for personal use).
+
+### Better Mobile View
+Mobile-first web experience that works well on phones and tablets.
+
+### Middle-Click Shortcuts
+Middle-click files in the file tree to quickly insert them; middle-click preview tabs to close them.
+
+### Agent Quick-Action Links
+Agents can send `#view`, `#fill`, `#jumpto`, `#speak`, and `#javascript` links for frictionless interaction. Install a SKILL and the agent generates them automatically:
+
+- **`#view`** — Preview a file directly in the UI
+- **`#fill`** — Fill the textbox with content
+- **`#jumpto`** — Trigger a private protocol URI
+- **`#speak`** — Read text aloud via local TTS
+- **`#javascript`** — Run a JS snippet in the browser and pipe output back to the textbox
+
+### Other Details
+
+- Download project files from the file tree
+- Local voice dictation input support
+- Relaxed file preview size limits
+- Built-in ligature-only font (Fira Code ligature glyphs, toggleable via env var)
+- Minimap scrollbar optimized for long conversations
+- Dedicated newline button for touch devices
+- One-click scroll-to-bottom + lock-to-bottom
+- Clear input button
+- Quick message quoting
+- Local TTS for messages
+- Preview toolbar with download and open-in-new-window option
+-  Few performance and interaction polish
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ALLOW_FULL_FS_ACCESS=true` | Allow full filesystem access (default `false`) |
+| `ENABLE_SYM_LIGATURE_FONT=true` | Enable ligature-only font (default `false`) |
 
 ## Notes
 
-- **Data directory**: pi-web reads `~/.pi/agent/sessions` by default. Set `PI_CODING_AGENT_DIR` to point at another pi agent directory.
-- **Session files**: files are stored as `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`.
-- **Model config**: the Models panel reads and writes `models.json` in the pi agent directory. Model lists and defaults come from pi's config.
-- **File access**: file browsing and preview are scoped to the selected project directory and working directories that appear in sessions.
-- **Forks vs in-session branches**: Fork creates a new `.jsonl` file. "Edit from here" creates another branch inside the same session file.
+- **Data directory**: Session files are read from `~/.pi/agent/sessions` by default. Override with the `PI_CODING_AGENT_DIR` environment variable.
+- **Session files**: Path format is `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`.
+- **Model config**: The Models panel reads/writes `models.json` in the Pi directory. Model lists and defaults are parsed from Pi's config.
+- **File access**: File browsing is scoped to the currently selected project directory and any cwds that appear in sessions.
+- **Fork vs. in-session branch**: Fork creates a new `.jsonl` file; "Edit" branches within the same session file.
 
 ## Development
 
@@ -58,7 +95,7 @@ npm install
 npm run dev
 ```
 
-The local dev server runs at [http://localhost:30141](http://localhost:30141).
+Local dev server at [http://localhost:30141](http://localhost:30141).
 
 Common checks:
 
@@ -67,46 +104,46 @@ node_modules/.bin/tsc --noEmit
 npm run lint
 ```
 
-Avoid running `next build` / `npm run build` during local development. It writes to `.next/` and can interfere with the dev server; leave builds for release work.
+Don't run `next build` / `npm run build` during development — it writes to `.next/` and can interfere with the running dev server. Build only for releases.
 
 ## Project Structure
 
-```text
+```
 app/
   api/
-    agent/          # creates/drives AgentSession and exposes SSE events
+    agent/          # Create/drive AgentSession, SSE event stream
     auth/           # OAuth and API key management
-    cwd/validate/   # custom working directory validation
-    default-cwd/    # pi default working directory lookup
-    files/          # file listing, reading, preview, and watching
-    home/           # current user home directory
-    models/         # available models, default model, thinking levels
-    models-config/  # read/write models.json and test models
-    sessions/       # session reads, rename, delete, context, HTML export
-    skills/         # skill listing, search, install, enable/disable
+    cwd/validate/   # Custom cwd validation
+    default-cwd/    # Get Pi's default cwd
+    files/          # File listing, reading, preview, file watcher
+    home/           # Current user home directory
+    models/         # Available models, default model, thinking levels
+    models-config/  # Read/write models.json, test models
+    sessions/       # Session reading, rename, delete, context, HTML export
+    skills/         # SKILL listing, search, install, enable/disable
 components/
-  AppShell.tsx        # main layout, URL state, top panels, file tabs
-  SessionSidebar.tsx  # project selector, session tree, Explorer
-  ChatWindow.tsx      # messages, SSE, image drag/drop, minimap
-  ChatInput.tsx       # input bar, model/tools/thinking/compact/slash controls
-  MessageView.tsx     # message, thinking, tool call/result rendering
-  ModelsConfig.tsx    # model and auth configuration panel
-  SkillsConfig.tsx    # skill management panel
-  FileExplorer.tsx    # file tree
-  FileViewer.tsx      # source, diff, image, audio, PDF, DOCX preview
+  AppShell.tsx        # Layout, URL state, top panels, file tabs
+  SessionSidebar.tsx  # Project picker, session tree, file tree
+  ChatWindow.tsx      # Messages, SSE, drag-n-drop images, minimap
+  ChatInput.tsx       # Input bar, model/tools/thinking/compact/slash commands
+  MessageView.tsx     # Messages, thinking, tool calls/result rendering
+  ModelsConfig.tsx    # Model and auth config panel
+  SkillsConfig.tsx    # Skill management panel
+  FileExplorer.tsx    # File tree
+  FileViewer.tsx      # Source, diff, image, audio, PDF, DOCX preview
 lib/
   rpc-manager.ts      # AgentSessionWrapper lifecycle and global registry
-  session-reader.ts   # parses .jsonl session files and branch contexts
-  normalize.ts        # normalizes toolCall field names
-  file-access.ts      # file read safety boundary
-  file-paths.ts       # path encoding and relative path helpers
-  markdown.ts         # Markdown/Mermaid/KaTeX plugin configuration
-  pi-types.ts         # pi-related types
+  session-reader.ts   # Parse .jsonl session files and branch context
+  normalize.ts        # Normalize toolCall field names
+  file-access.ts      # File read security boundary
+  file-paths.ts       # File path encoding and relative path utilities
+  markdown.ts         # Markdown/Mermaid/KaTeX plugin config
+  pi-types.ts         # Pi-related types
 hooks/
-  useAgentSession.ts  # session loading, command sending, SSE state machine
-  useAudio.ts         # completion sound
-  useDragDrop.ts      # image drag/drop
-  useTheme.ts         # theme switching
+  useAgentSession.ts  # Session load, send command, SSE state machine
+  useAudio.ts         # Completion sound effects
+  useDragDrop.ts      # Image drag-n-drop
+  useTheme.ts         # Theme switching
 bin/
-  pi-web.js           # npm CLI entrypoint
+  pi-web.js           # NPM CLI entrypoint
 ```
